@@ -30,7 +30,28 @@ def register():
     )
     db.session.add(new_user)
     db.session.commit()
-    return jsonify({'message': 'user registered successfully'}), 201
+    return jsonify({'message': 'user registered successfully' , 'user':{'id': new_user.id,
+            'name': new_user.name,
+            'email': new_user.email,
+            'user_type': new_user.user_type
+        }
+    }), 201
+
+
+
+
+@app.route('/users/<int:user_id>', methods=['GET'])
+def get_user_details(user_id):
+    user_obj = user.query.get(user_id)
+    if user_obj:
+        return jsonify({
+            'id': user_obj.id,
+            'name': user_obj.name,
+            'email': user_obj.email,
+            'user_type': user_obj.user_type
+        }), 200
+    return jsonify({'message': 'User not found'}), 404
+
 
 #login user (simplified version)
 @app.route('/login', methods=['POST'])
