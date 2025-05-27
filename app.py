@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from models import db, user , ParkingSpace , Booking , Feedback
 from datetime import datetime, timedelta
+from flask import render_template 
 
 
 #initialize Flask app
@@ -17,6 +18,11 @@ db.init_app(app)
 @app.route('/')
 def index():
     return "Smart parking app backend is Running!"
+
+
+@app.route('/test_register' , methods=['GET'])
+def test_register():
+    return render_template('register.html')
 
 #register a new user 
 @app.route('/register', methods=['POST'])
