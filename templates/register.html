@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Register User</title>
+</head>
+<body>
+  <h2>Register User</h2>
+  <form id="registerForm">
+    <label>Name:</label><br>
+    <input type="text" name="name" required><br>
+    <label>Email:</label><br>
+    <input type="email" name="email" required><br>
+    <label>Password:</label><br>
+    <input type="password" name="password" required><br>
+    <label>User Type:</label><br>
+    <select name="user_type">
+      <option value="customer">Customer</option>
+      <option value="owner">Owner</option>
+      <option value="admin">Admin</option>
+    </select><br><br>
+    <button type="submit">Register</button>
+  </form>
+
+  <p id="result"></p>
+
+  <script>
+    document.getElementById("registerForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        name: form.name.value,
+        email: form.email.value,
+        password: form.password.value,
+        user_type: form.user_type.value
+      };
+
+      const res = await fetch("http://127.0.0.1:5000/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await res.json();
+      document.getElementById("result").innerText = JSON.stringify(result, null, 2);
+    });
+  </script>
+</body>
+</html>
