@@ -144,7 +144,7 @@ def book_parking():
                 return jsonify({'message': 'Conflict: This parking space is already booked for the selected dates.'}), 409
 
     try:
-        start_date = datetime.strptime(date['start_date'], '%y-%m-%d').date()
+        start_date = datetime.strptime(data['start_date'], '%y-%m-%d').date()
     except ValueError:
         return jsonify({'message': 'Invalid date format. Use yy-mm-dd.'}), 400
 
@@ -247,10 +247,10 @@ from sqlalchemy import func
 @app.route('/suggest_parking/<int:user_id>' , methods=['Get'])
 def suggest_parking(user_id):
 
-    user_bookings = booking.query.filter_by(customer_id = user_id).all()
+    user_bookings = Booking.query.filter_by(customer_id = user_id).all()
 
     if not user_bookings:
-        all_bookings = booking.query.all()
+        all_bookings = Booking.query.all()
         location_counter = Counter()
         for b in user_bookings:
             space = ParkingSpace.query.get(b.parking_space_id)
@@ -401,7 +401,7 @@ def submit_feedback():
 
 #view feedback
 @app.route('/feedback/<int:parking_space_id>' , methods=['GET'])
-def view_feedback(parkin_space_id):
+def view_feedback(parking_space_id):
     feedbacks = Feedback.query.filter_by(parking_space_id=parking_space_id).all()
     result = []
     for f in feedbacks:
@@ -432,7 +432,7 @@ def suggest_top_rates():
 
     suggestions = []
     for space, rating in rated_spaces[:10]:
-        suggestion.append({
+        suggestions.append({
             'id': space.id,
             'location': space.location,
             'price_per_day': space.price_per_day,
