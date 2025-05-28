@@ -3,13 +3,14 @@ from flask_sqlalchemy import SQLAlchemy
 from models import db, user , ParkingSpace , Booking , Feedback
 from datetime import datetime, timedelta
 from flask import render_template 
+import os 
 
 
 #initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, instance_relative_config=True)
 
 #set up SQLite database URI(auto-created if not found)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' +os.path.join(app.instance_path, 'database.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 #initialize the database with flask app
