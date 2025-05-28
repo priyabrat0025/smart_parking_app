@@ -21,11 +21,13 @@
     <button type="submit">Register</button>
   </form>
 
-  <p id="result"></p>
+  <p id="result" style="color: green;"></p>
+  <p id="error" style="color: red;"></p>
 
   <script>
-    document.getElementById("registerForm").addEventListener("submit", async function(e) {
+    document.getElementById("registerForm").addEventListener("submit", async function (e) {
       e.preventDefault();
+
       const form = e.target;
       const data = {
         name: form.name.value,
@@ -34,16 +36,30 @@
         user_type: form.user_type.value
       };
 
-      const res = await fetch("http://127.0.0.1:5000/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(data)
-      });
+      // Clear messages
+      document.getElementById("result").innerText = "";
+      document.getElementById("error").innerText = "";
 
-      const result = await res.json();
-      document.getElementById("result").innerText = JSON.stringify(result, null, 2);
+      try {
+        const response = await fetch("http://127.0.0.1:5000/register", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          document.getElementById("result").innerText = result.message;
+        } else {
+          document.getElementById("error").innerText = result.message || "Registration failed.";
+        }
+      } catch (err) {
+        document.getElementById("error").innerText = "Error: Could not connect to server.";
+        console.error(err);
+      }
     });
   </script>
 </body>
