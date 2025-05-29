@@ -16,6 +16,19 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 #initialize the database with flask app
 db.init_app(app)
 
+@app.route('/debug_users')
+def debug_users():
+    users = user.query.all()
+    return jsonify([
+        {
+            'id': u.id,
+            'name': u.name,
+            'email': u.email,
+            'user_type': u.user_type
+        }
+        for u in users
+    ])
+
 @app.route('/')
 def index():
     return "Smart parking app backend is Running!"
@@ -465,4 +478,5 @@ if __name__ == '__main__':
         db.create_all()
         print("📂 Using DB at:", app.config['SQLALCHEMY_DATABASE_URI'])  # Optional debug
     app.run(debug=True)
+print("📂 Using database:", app.config['SQLALCHEMY_DATABASE_URI'])
 
