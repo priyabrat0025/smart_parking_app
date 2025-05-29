@@ -451,3 +451,16 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()  # Creates tables in the database if not already present
     app.run(debug=True)
+
+@app.route('/debug_users')
+def debug_users():
+    users = user.query.all()
+    return jsonify([
+        {
+            'id': u.id,
+            'name': u.name,
+            'email': u.email,
+            'user_type': u.user_type
+        }
+        for u in users
+    ])
