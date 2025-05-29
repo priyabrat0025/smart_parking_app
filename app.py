@@ -442,3 +442,7 @@ def suggest_top_rates():
         })
     return jsonify({'top_rated_spaces': suggestions}), 200
 
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()  # Creates tables in the database if not already present
+    app.run(debug=True)
