@@ -447,11 +447,6 @@ def suggest_top_rates():
         })
     return jsonify({'top_rated_spaces': suggestions}), 200
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # Creates tables in the database if not already present
-    app.run(debug=True)
-
 @app.route('/debug_users')
 def debug_users():
     users = user.query.all()
@@ -464,3 +459,10 @@ def debug_users():
         }
         for u in users
     ])
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+        print("📂 Using DB at:", app.config['SQLALCHEMY_DATABASE_URI'])  # Optional debug
+    app.run(debug=True)
+
