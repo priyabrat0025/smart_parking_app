@@ -28,7 +28,12 @@ def test_register():
 #register a new user 
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
+    
+    if request.is_json:
+        data = request.get_json()
+    else:
+        data = request.form
+
     new_user = user(
         name=data['name'],
         email=data['email'],
