@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0e1c36;
+      color: white;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+      background: rgba(0, 102, 204, 0.15);
+      border-radius: 15px;
+      box-shadow: 0 0 15px #00aaff;
+    }
+    h1, h3 {
+      text-align: center;
+      color: #ffffff;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+    input, select, textarea, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+      border-radius: 8px;
+      border: none;
+      outline: none;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .stats, .form-section, .results-section {
+      margin-bottom: 20px;
+    }
+    .booking-list, .search-results, .feedback-list, .suggestions-list {
+      background: rgba(255,255,255,0.05);
+      padding: 10px;
+      border-radius: 8px;
+      margin-top: 15px;
+    }
+    .booking-list div, .search-results div, .feedback-list div, .suggestions-list div {
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+      padding: 5px 0;
+    }
+    .logout {
+      text-align: right;
+      margin-bottom: 10px;
+    }
+    .logout a {
+      color: white;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logout">
+      <a href="/logout">Logout</a>
+    </div>
+
+    <h1>Welcome, {{ user_name }} ({{ user_type.capitalize() }})</h1>
+
+    <div class="stats">
+      <p><strong>Available Parking Spaces:</strong> {{ available_spaces }}</p>
+      <p><strong>Total Bookings:</strong> {{ bookings_count }}</p>
+
+      {% if user_type == 'customer' %}
+        <p><strong>Total Spent:</strong> ₹{{ total_price }}</p>
+
+        <h3>Search & Book Parking</h3>
+        <form id="searchParkingForm">
+          <label>Enter Location:</label>
+          <input type="text" id="locationInput" required>
+          <label>Start Date:</label>
+          <input type="date" id="startDate" required>
+          <label>Number of Days:</label>
+          <input type="number" id="daysInput" required>
+          <button type="submit">Search</button>
+        </form>
+
+        <div class="search-results" id="searchResults"></div>
+
+        <h3>Suggestions Based on Your History</h3>
+        <div class="suggestions-list" id="suggestionsList"></div>
+
+        <h3>Your Bookings</h3>
+        <div class="booking-list" id="customerBookings"></div>
+
+        <h3>Submit Feedback</h3>
+        <form id="feedbackForm">
+          <label>Parking Space ID:</label>
+          <input type="text" id="feedbackSpaceId" required>
+          <label>Your Feedback:</label>
+          <textarea id="feedbackText" rows="3" required></textarea>
+          <button type="submit">Submit</button>
+        </form>
+        <p id="feedbackMessage"></p>
+
+      {% elif user_type == 'owner' %}
+        <p><strong>Your Earnings:</strong> ₹{{ owner_earnings }}</p>
+
+        <div class="form-section">
+          <h3>Add Parking Space</h3>
+          <form id="addParkingForm">
+            <label>Location:</label>
+            <input type="text" name="location" required>
+            <label>Price Per Day:</label>
+            <input type="number" name="price_per_day" required>
+            <label>Availability:</label>
+            <select name="is_available">
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+            <input type="hidden" name="owner_id" value="{{ user_id }}">
+            <button type="submit">Add</button>
+          </form>
+          <div id="addParkingResult"></div>
+        </div>
+
+        <div class="results-section">
+          <h3>Your Bookings</h3>
+          <div class="booking-list" id="ownerBookings"></div>
+        </div>
+
+      {% elif user_type == 'admin' %}
+        <p><strong>Total Owner Earnings:</strong> ₹{{ owner_earnings }}</p>
+        <p><strong>Total Platform Earnings:</strong> ₹{{ platform_earnings }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    {% if user_type == 'customer' %}
+    document.getElementById("searchParkingForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const loc = document.getElementById("locationInput").value;
+      const days = parseInt(document.getElementById("daysInput").value);
+      const startDate = document.getElementById("startDate").value;
+      const res = await fetch(`/search_parking?location=${loc}`);
+      const data = await res.json();
+      const resultDiv = document.getElementById("searchResults");
+      resultDiv.innerHTML = "";
+      if (!data.available_spaces || data.available_spaces.length === 0) {
+        resultDiv.innerHTML = "<p>No spaces found.</p>";
+      } else {
+        data.available_spaces.forEach(space => {
+          const d = document.createElement("div");
+          d.innerHTML = `<strong>Location:</strong> ${space.location} <br>
+                         <strong>Price:</strong> ₹${space.price_per_day} <br>
+                         <button onclick="bookNow('${space._id}', ${days}, '${startDate}')">Book Now</button>`;
+          resultDiv.appendChild(d);
+        });
+      }
+    });
+
+    async function bookNow(parkingId, days, startDate) {
+      const res = await fetch("/book_parking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: "{{ user_id }}",
+          parking_space_id: parkingId,
+          start_date: startDate,
+          days: days
+        })
+      });
+      const result = await res.json();
+      alert(result.message);
+      loadCustomerBookings();
+      loadSuggestions();
+    }
+
+    async function loadCustomerBookings() {
+      const res = await fetch(`/customer_bookings/{{ user_id }}`);
+      const data = await res.json();
+      const div = document.getElementById("customerBookings");
+      div.innerHTML = "";
+      data.forEach(b => {
+        const d = document.createElement("div");
+        d.innerHTML = `<strong>Location:</strong> ${b.parking_space_id}<br>
+                       <strong>Start Date:</strong> ${b.start_date}<br>
+                       <strong>Days:</strong> ${b.days}<br>
+                       <strong>Price:</strong> ₹${b.total_price}<br>
+                       <button onclick="cancelBooking('${b._id}')">Cancel Booking</button>`;
+        div.appendChild(d);
+      });
+    }
+
+    async function cancelBooking(id) {
+      const res = await fetch(`/cancel_booking/${id}`, { method: "PUT" });
+      const result = await res.json();
+      alert(result.message);
+      loadCustomerBookings();
+    }
+
+    async function loadSuggestions() {
+      const res = await fetch(`/suggest_parking/{{ user_id }}`);
+      const data = await res.json();
+      const div = document.getElementById("suggestionsList");
+      div.innerHTML = "";
+      if (!data.suggestions || data.suggestions.length === 0) {
+        div.innerHTML = "<p>No suggestions available.</p>";
+      } else {
+        data.suggestions.forEach(space => {
+          const d = document.createElement("div");
+          d.innerHTML = `<strong>Location:</strong> ${space.location} <br>
+                         <strong>Price:</strong> ₹${space.price_per_day} <br>`;
+          div.appendChild(d);
+        });
+      }
+    }
+
+    loadCustomerBookings();
+    loadSuggestions();
+
+    document.getElementById("feedbackForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const spaceId = document.getElementById("feedbackSpaceId").value;
+      const feedback = document.getElementById("feedbackText").value;
+      const res = await fetch("/submit_feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parking_space_id: spaceId,
+          text: feedback
+        })
+      });
+      const msg = await res.json();
+      document.getElementById("feedbackMessage").innerText = msg.message;
+    });
+    {% endif %}
+
+    {% if user_type == 'owner' %}
+    document.getElementById("addParkingForm").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        location: form.location.value,
+        price_per_day: parseInt(form.price_per_day.value),
+        is_available: form.is_available.value === "true",
+        owner_id: form.owner_id.value
+      };
+      const res = await fetch("/add_parking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      const result = await res.json();
+      document.getElementById("addParkingResult").innerText = result.message;
+    });
+
+    async function loadOwnerBookings() {
+      const res = await fetch("/owner_bookings/{{ user_id }}");
+      const bookings = await res.json();
+      const list = document.getElementById("ownerBookings");
+      list.innerHTML = "";
+      bookings.forEach(b => {
+        const div = document.createElement("div");
+        div.innerHTML = `<strong>Customer ID:</strong> ${b.customer_id} <br>
+                         <strong>From:</strong> ${b.start_date} for ${b.days} days <br>
+                         <strong>Total:</strong> ₹${b.total_price}`;
+        list.appendChild(div);
+      });
+    }
+    loadOwnerBookings();
+    {% endif %}
+  </script>
+</body>
+</html>
