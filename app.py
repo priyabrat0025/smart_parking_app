@@ -1,482 +1,309 @@
-from flask import Flask, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from models import db, user , ParkingSpace , Booking , Feedback
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session
+from pymongo import MongoClient
+from bson.objectid import ObjectId
 from datetime import datetime, timedelta
-from flask import render_template 
-import os 
+from collections import Counter
 
+# Initialize Flask app
+app = Flask(__name__)
+app.secret_key = "your_secret_key"  # put something random & secret here
 
-#initialize Flask app
-app = Flask(__name__, instance_relative_config=True)
+# MongoDB setup
+client = MongoClient("mongodb://localhost:27017/")
+db = client["smart_parking"]
+users = db["users"]
+spaces = db["parking_spaces"]
+bookings = db["bookings"]
+feedbacks = db["feedbacks"]
 
-#set up SQLite database URI(auto-created if not found)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' +os.path.join(app.instance_path, 'database.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-#initialize the database with flask app
-db.init_app(app)
-
-@app.route('/debug_users')
-def debug_users():
-    users = user.query.all()
-    return jsonify([
-        {
-            'id': u.id,
-            'name': u.name,
-            'email': u.email,
-            'user_type': u.user_type
-        }
-        for u in users
-    ])
 
 @app.route('/')
 def index():
-    return "Smart parking app backend is Running!"
+    return render_template('index.html')
 
-
-@app.route('/test_register' , methods=['GET'])
-def test_register():
+@app.route('/register', methods=['GET'])
+def show_register():
     return render_template('register.html')
 
-#register a new user 
+@app.route('/dashboard')
+def dashboard():
+    user_email = session.get("user_email")
+    if not user_email:
+        return redirect(url_for('login'))
+
+    user = users.find_one({"email": user_email})
+    if not user:
+        return "User not found", 404
+
+    user_type = user.get("user_type")
+    user_name = user.get("name")
+    user_id = str(user["_id"])
+
+    available_spaces = spaces.count_documents({"is_available": True})
+
+    bookings_count = 0
+    total_price = 0
+    owner_earnings = 0
+    platform_earnings = 0
+
+    if user_type == "customer":
+        customer_bookings = list(bookings.find({"customer_id": user_id}))
+        bookings_count = len(customer_bookings)
+        total_price = sum(b.get("total_price", 0) for b in customer_bookings)
+
+    elif user_type == "owner":
+        owner_spaces = list(spaces.find({"owner_id": user_id}))
+        space_ids = [str(s["_id"]) for s in owner_spaces]
+        owner_bookings = list(bookings.find({"parking_space_id": {"$in": space_ids}}))
+        bookings_count = len(owner_bookings)
+        owner_earnings = sum(b.get("owner_earning", 0) for b in owner_bookings)
+
+    elif user_type == "admin":
+        all_bookings = list(bookings.find())
+        bookings_count = len(all_bookings)
+        owner_earnings = sum(b.get("owner_earning", 0) for b in all_bookings)
+        platform_earnings = sum(b.get("platform_earning", 0) for b in all_bookings)
+
+    return render_template(
+        "dashbord.html",
+        user_name=user_name,
+        user_type=user_type,
+        available_spaces=available_spaces,
+        bookings_count=bookings_count,
+        total_price=total_price,
+        owner_earnings=owner_earnings,
+        platform_earnings=platform_earnings
+    )
+
 @app.route('/register', methods=['POST'])
 def register():
-    
-    if request.is_json:
-        data = request.get_json()
-    else:
-        data = request.form
+    data = request.get_json() if request.is_json else request.form
+    if users.find_one({"email": data['email']}):
+        return jsonify({'message': 'User already exists'}), 409
+    user_data = {
+        "name": data['name'],
+        "email": data['email'],
+        "password": data['password'],
+        "user_type": data['user_type']
+    }
+    result = users.insert_one(user_data)
+    user_data['_id'] = str(result.inserted_id)
+    return jsonify({'message': 'user registered successfully', 'user': user_data}), 201
 
-    new_user = user(
-        name=data['name'],
-        email=data['email'],
-        password=data['password'],
-        user_type=data['user_type']
-    )
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({'message': 'user registered successfully' , 'user':{'id': new_user.id,
-            'name': new_user.name,
-            'email': new_user.email,
-            'user_type': new_user.user_type
-        }
-    }), 201
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session
+from pymongo import MongoClient
 
+app.secret_key = 'your_secret_key'  # Required for session handling
 
+# existing MongoDB setup
+client = MongoClient("mongodb://localhost:27017/")
+db = client["smart_parking"]
+users = db["users"]
+# ... rest unchanged ...
 
-
-@app.route('/users/<int:user_id>', methods=['GET'])
-def get_user_details(user_id):
-    user_obj = user.query.get(user_id)
-    if user_obj:
-        return jsonify({
-            'id': user_obj.id,
-            'name': user_obj.name,
-            'email': user_obj.email,
-            'user_type': user_obj.user_type
-        }), 200
-    return jsonify({'message': 'User not found'}), 404
-
-
-#login user (simplified version)
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    data = request.get_json()
-    user = user.query.filter_by(email=data['email'],password=data['password']).first()
+    if request.method == 'GET':
+        return render_template('login.html')
 
-    if user:
-        return jsonify({'message': 'login successful', 'user_type':user.user_type})
-    return jsonify({'message':'Invalid credentials'}), 401
+    email = request.form['email']
+    password = request.form['password']
+
+    u = users.find_one({"email": email, "password": password})
+    if u:
+        session['user_email'] = u['email']
+        return redirect(url_for('dashboard'))
+    else:
+        return render_template('login.html', error="Invalid credentials.")
 
 
-#start Flask app
-if __name__=='__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True)
-
-from models import ParkingSpace  
-
-# land owner adds a parking space
-
-@app.route('/add_parking' , methods=['POST'])
+@app.route('/add_parking', methods=['POST'])
 def add_parking():
     data = request.get_json()
+    new_space = {
+        "location": data['location'],
+        "is_available": True,
+        "price_per_day": data['price_per_day'],
+        "owner_id": data['owner_id']
+    }
+    spaces.insert_one(new_space)
+    return jsonify({'message': 'parking space added successfully'}), 201
 
-    new_space = ParkingSpace(
-        location=data['location'],
-        is_available=True,
-        price_per_day = data['price_per_day'],
-        owner_id=data['owner_id']
-    )
-
-    db.session.add(new_space)
-    db.session.commit()
-
-    return jsonify({'message': 'parking space added successfully'}),201
-
-
-#customer searches for available parking in a location
-
-@app.route('/search_parking' , methods=['GET'])
+@app.route('/search_parking', methods=['GET'])
 def search_parking():
-    location = request.args.get('location') 
+    location = request.args.get('location')
     if not location:
         return jsonify({'message': 'Location parameter is required'}), 400
 
+    # Use case-insensitive regex match to support flexible search
+    query = {
+        "location": {"$regex": location, "$options": "i"},
+        "is_available": True
+    }
 
-    available_spaces = ParkingSpace.query.filter_by(
-        location=location,
-        is_available=True
-    ).all()
-
-    result =[]
-    for space in available_spaces:
-        result.append({
-        'id': space.id,
-        'location': space.location,
-        'proce_per_day':space.price_per_day,
-        'owner_id':space.owner_id
-    })
-
-    return jsonify({'available_spaces': result})
-
- #booking api
+    available = list(spaces.find(query))
+    for s in available:
+        s['_id'] = str(s['_id'])
+    return jsonify({'available_spaces': available})
 @app.route('/book_parking', methods=['POST'])
 def book_parking():
     data = request.get_json()
-    space = ParkingSpace.query.get(data['parking_space_id'])
-
-
-    if not space or not space.is_available:
-        return jsonify({'message': 'parking soace not available'}), 400
-
-    start_date = datetime.strptime(data['start_date'], "%Y-%m-%d").date()
+    space = spaces.find_one({"_id": ObjectId(data['parking_space_id'])})
+    if not space or not space['is_available']:
+        return jsonify({'message': 'parking space not available'}), 400
+    start_date = datetime.strptime(data['start_date'], '%Y-%m-%d')
     end_date = start_date + timedelta(days=data['days'])
-    
-    #conflict check
-    existing_bookings = Booking.query.filter_by(parking_space_id=space.id).all()
-    for b in existing_bookings:
-        if b.start_date and b.days:
-            b_end = b.start_date + timedelta(days=b.days)
-            if (start_date < b_end and end_date > b.start_date):
-                return jsonify({'message': 'Conflict: This parking space is already booked for the selected dates.'}), 409
-
-    try:
-        start_date = datetime.strptime(data['start_date'], '%y-%m-%d').date()
-    except ValueError:
-        return jsonify({'message': 'Invalid date format. Use yy-mm-dd.'}), 400
-
-
-    total = space.price_per_day * data['days']
-    platform_cut = int(total *0.4)
-    owner_cut = total - platform_cut
-    end_date = start_date + timedelta(days=data['days'])
-
-    booking = booking(
-        customer_id = data['customer_id'],
-        parking_space_id = data['parking_space_id'],
-        days = data['days'],
-        start_date = start_date,
-        total_price = total,
-        owner_earning = owner_cut,
-        platform_earning = platform_cut
-    )
-
-    space.is_available = False
-    db.session.add(booking)
-    db.session.commit()
-
-    return jsonify({'message': 'booking successful', 'total_price': total, 'platform_earning':platform_cut, 'owner_earning': owner_cut}), 201
-
-#landowner: mark available/full
+    existing = bookings.find({"parking_space_id": data['parking_space_id']})
+    for b in existing:
+        b_start = b['start_date']
+        b_end = b_start + timedelta(days=b['days'])
+        if start_date < b_end and end_date > b_start:
+            return jsonify({'message': 'Conflict: Already booked'}), 409
+    total = space['price_per_day'] * data['days']
+    owner_cut = total * 0.6
+    booking = {
+        "customer_id": data['customer_id'],
+        "parking_space_id": data['parking_space_id'],
+        "days": data['days'],
+        "start_date": start_date,
+        "total_price": total,
+        "owner_earning": owner_cut,
+        "platform_earning": total - owner_cut,
+        "is_active": True
+    }
+    bookings.insert_one(booking)
+    spaces.update_one({"_id": space['_id']}, {"$set": {"is_available": False}})
+    return jsonify({'message': 'booking successful'}), 201
 
 @app.route('/update_availability', methods=['POST'])
 def update_availability():
     data = request.get_json()
-    space = ParkingSpace.query.get(data['parking_space_id'])
+    result = spaces.update_one({"_id": ObjectId(data['parking_space_id'])}, {"$set": {"is_available": data['is_available']}})
+    if result.modified_count:
+        return jsonify({'message': 'availability updated'})
+    return jsonify({'message': 'space not found'}), 404
 
-    if not space:
-        return jsonify({'message': 'space not found'}), 404
-    
-    space.is_available = data['is_available']
-    db.session.commit()
-    return jsonify({'message': 'availability updated'}),200
+@app.route('/customer_bookings/<customer_id>', methods=['GET'])
+def customer_bookings_view(customer_id):
+    user_bookings = list(bookings.find({"customer_id": customer_id}))
+    for b in user_bookings:
+        b['_id'] = str(b['_id'])
+        b['start_date'] = b['start_date'].strftime('%Y-%m-%d')
+    return jsonify(user_bookings)
 
+@app.route('/owner_bookings/<owner_id>', methods=['GET'])
+def owner_bookings_view(owner_id):
+    owner_spaces = list(spaces.find({"owner_id": owner_id}))
+    space_ids = [str(s['_id']) for s in owner_spaces]
+    owner_bookings = list(bookings.find({"parking_space_id": {"$in": space_ids}}))
+    for b in owner_bookings:
+        b['_id'] = str(b['_id'])
+    return jsonify(owner_bookings)
 
-#get customer_bookings
-
-@app.route('/customer_bookings/<int:customer_id>', methods=['GET'])
-def get_customer_bookings(customer_id):
-    bookings = booking.query.filter_by(customer_id=customer_id).all()
-    result = []
-    
-    for booking in bookings:
-        space = ParkingSpace.query.get(booking.parking_space_id)
-        result.append({
-            'location':space.location,
-            'days': booking.days,
-            'total_price': booking.total_price,
-            'owner_earning': booking.owner_earning,
-            'platform_earning': booking.platform_earning
-        })
-    return jsonify(result)
-
-#get owner booking
-
-@app.route('/owner_bookings/<int:owner_id>', methods=['GET'])
-def get_owner_bookings(owner_id):
-    spaces = ParkingSpace.query.filter_by(owner_id=owner_id).all()
-    space_ids = [s.id for s in spaces]
-    bookings = booking.query.filter(booking.parking_space_id.in_(space_ids)).all()
-
-    result =[]
-    for booking in bookings:
-        space = ParkingSpace.query.get(booking.parking_space_id)
-        customer = user.query.get(booking.customer_id)
-        result.append({
-            'location': space.locaton,
-            'customer':customer.name,
-            'days':booking.days,
-            'total_price': booking.total_price
-        })
-        return jsonify(result)
-#cancel booking 
-
-@app.route('/cancel_booking/<int:booking_id>', methods=['PUT'])
+@app.route('/cancel_booking/<booking_id>', methods=['PUT'])
 def cancel_booking(booking_id):
-    booking = booking.query.get(booking_id)
-    if booking and booking.is_active:
-        booking.is_active = False
-        db.session.commit()
-        return jsonify({'message': 'Booking cancelled successfully'}), 200
-    return jsonify({'message': 'Booking not found or already cancelled'}), 404
+    updated = bookings.update_one({"_id": ObjectId(booking_id)}, {"$set": {"is_active": False}})
+    if updated.modified_count:
+        return jsonify({'message': 'Booking cancelled'})
+    return jsonify({'message': 'Not found or already cancelled'}), 404
 
-
-with app.app_context():
-    db.create_all()
-
-
-#ml integration
-
-from collections import Counter
-from sqlalchemy import func
-
-
-@app.route('/suggest_parking/<int:user_id>' , methods=['Get'])
-def suggest_parking(user_id):
-
-    user_bookings = Booking.query.filter_by(customer_id = user_id).all()
-
-    if not user_bookings:
-        all_bookings = Booking.query.all()
-        location_counter = Counter()
-        for b in user_bookings:
-            space = ParkingSpace.query.get(b.parking_space_id)
-            if space:
-                location_counter[space.location]+=1
-        top_locations = location_counter.most_common(10)
-    else :
-        location_counter = Counter()
-        for b in user_bookings:
-            space = ParkingSpace.query.get(b.parking_space_id)
-            if space:
-                location_counter[space.location] += 1
-
-        top_locations = location_counter.most_common(10)
-
-    # Fetch available parking spaces in those locations
-    suggestions = []
-    for location, _ in top_locations:
-        spaces = ParkingSpace.query.filter_by(location=location, is_available=True).all()
-        for space in spaces:
-            suggestions.append({
-                'id': space.id,
-                'location': space.location,
-                'price_per_day': space.price_per_day,
-                'owner_id': space.owner_id
-            })
-
-    return jsonify({'suggestions': suggestions})
-    return jsonify({'message': 'Route working!'})
-
-
-    #for admin 
-    #view all users
-
-@app.route('/admin/users', methods = ['GET'])
-def view_all_users():
-    users = user.query.all()
-    result = []
-    for u in users:
-     result.append({
-        'id': u.id,
-        'name': u.name,
-        'email': u.email,
-        'user_type': u.user_type
-        })
-    return jsonify(result)
-
-#view all parking space
-
-@app.route('/admin/parkings' , methods=['GET'])
-def view_all_parking_spaces():
-    spaces = ParkingSpace.query.all()
-    result = []
-    for space in spaces:
-        result.append({
-            'id':space.id,
-            'loaction': space.location,
-            'is_available': space.is_available,
-            'price_per_day':space.price_per_day,
-            'owner_id': space.owner_id
-        })
-    return jsonify(result)
-
-#view all bookings
-@app.route('/admin/bookings', methods=['GET'])
-def view_all_bookings():
-    bookings = Booking.query.all()
-    result = []
-    for b in bookings:
-        result.append({
-              'id': b.id,
-            'customer_id': b.customer_id,
-            'parking_space_id': b.parking_space_id,
-            'days': b.days,
-            'total_price': b.total_price,
-            'owner_earning': b.owner_earning,
-            'platform_earning': b.platform_earning,
-            'is_active': b.is_active
-        })
-    return jsonify(result)
-
-#delete a user
-@app.route('/admin/delete_user/<int:user_id>' , methods=['DELETE'])
-def delete_user(user_id):
-    u = user.query.get(user_id)
-    if u:
-        db.session.delete(u)
-        db.session.commit()
-        return jsonify({'message': 'user deleted successfully'})
-    return jsonify({'message': 'user not found'}), 404
-
-
-#admin earning summary
-@app.route('/admin/earnings_summary', methods = ['GET'])
-def earning_summary():
-    bookings = Booking.query.all()
-
-    total_platform_earning = sum([b.platform_earning for b in bookings if b.platform_earning])
-    total_owner_earning = sum([b.owner_earning for b in bookings if b.owner_earning])
-    total_bookings = len(bookings)
-
-    # Optional: Location-wise breakdown
-    location_summary = {}
-    for booking in bookings:
-        space = ParkingSpace.query.get(booking.parking_space_id)
-        if space:
-            loc = space.location
-            if loc not in location_summary:
-                location_summary[loc] = {
-                    'total_bookings': 0,
-                    'total_earning': 0
-                }
-            location_summary[loc]['total_bookings'] += 1
-            location_summary[loc]['total_earning'] += booking.total_price
-
-    return jsonify({
-        'total_platform_earning': total_platform_earning,
-        'total_owner_earning': total_owner_earning,
-        'total_bookings': total_bookings,
-        'location_summary': location_summary
-    }), 200
-
-#location wise booking
-
-@app.route('/admin/location_stats' , methods = ['GET'])
-def location_booking_stats():
-    stats = db.session.query(
-        ParkingSpace.location,
-        db.func.count(Booking.id).label('total_bookings')
-    ).join(Booking, ParkingSpace.id == Booking.parking_space_id)\
-     .group_by(ParkingSpace.location)\
-     .all()
-
-#feedback 
-
-@app.route('/submit_feedback', methods = ['POST'])
+@app.route('/submit_feedback', methods=['POST'])
 def submit_feedback():
     data = request.get_json()
-    feedback = Feedback(
-        user_id = data['user_id'],
-        parking_space_id = data['parking_space_id'],
-        rating = data['rating'],
-        comment = data.get('comment', '')
-    )
-    db.session.add(feedback)
-    db.session.commit()
-    return jsonify({'message':'feedback submitted successfully'}), 201
+    data['timestamp'] = datetime.now()
+    feedbacks.insert_one(data)
+    return jsonify({'message': 'feedback submitted successfully'}), 201
 
-#view feedback
-@app.route('/feedback/<int:parking_space_id>' , methods=['GET'])
+@app.route('/feedback/<parking_space_id>', methods=['GET'])
 def view_feedback(parking_space_id):
-    feedbacks = Feedback.query.filter_by(parking_space_id=parking_space_id).all()
+    fb_list = list(feedbacks.find({"parking_space_id": parking_space_id}))
+    for f in fb_list:
+        f['_id'] = str(f['_id'])
+        f['timestamp'] = f['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+    return jsonify(fb_list)
+
+@app.route('/admin/users', methods=['GET'])
+def admin_users():
+    all_users = list(users.find())
+    for u in all_users:
+        u['_id'] = str(u['_id'])
+    return jsonify(all_users)
+
+@app.route('/admin/bookings', methods=['GET'])
+def admin_bookings():
+    all_bookings = list(bookings.find())
+    for b in all_bookings:
+        b['_id'] = str(b['_id'])
+        b['start_date'] = b['start_date'].strftime('%Y-%m-%d')
+    return jsonify(all_bookings)
+
+@app.route('/admin/parkings', methods=['GET'])
+def admin_parkings():
+    all_spaces = list(spaces.find())
+    for s in all_spaces:
+        s['_id'] = str(s['_id'])
+    return jsonify(all_spaces)
+
+@app.route('/admin/earnings_summary', methods=['GET'])
+def earnings_summary():
+    all = list(bookings.find())
+    summary = {
+        'total_platform_earning': sum(b['platform_earning'] for b in all),
+        'total_owner_earning': sum(b['owner_earning'] for b in all),
+        'total_bookings': len(all)
+    }
+    return jsonify(summary)
+
+@app.route('/suggest_parking/<customer_id>', methods=['GET'])
+def suggest_parking(customer_id):
+    all_book = list(bookings.find({"customer_id": customer_id}))
+    loc_counter = Counter()
+
+    for b in all_book:
+        space = spaces.find_one({"_id": ObjectId(b['parking_space_id'])})
+        if space:
+            loc_counter[space['location']] += 1
+
     result = []
-    for f in feedbacks:
-        user_obj = user.query.get(f.user_id)
-        result.append({
-            'user': user_obj.name if user_obj else "unkown",
-            'rating': f.rating,
-            'commwnt':f.comment,
-            'timestamp': f.timestamp.strftime('%y-%m-%d %H:%M:%S')
-        })
-    return jsonify(result)
 
-#top-rated suggestions
+    # If customer has no history, return any available space without conflict
+    if not loc_counter:
+        available_spaces = list(spaces.find({"is_available": True}))
+        for s in available_spaces:
+            s_id = str(s['_id'])
+            bookings_for_space = list(bookings.find({"parking_space_id": s_id}))
+            has_future_booking = any(
+                (datetime.now() < b['start_date'] + timedelta(days=b['days'])) and b.get("is_active", True)
+                for b in bookings_for_space
+            )
+            if not has_future_booking:
+                s['_id'] = s_id
+                result.append(s)
+    else:
+        top = [loc for loc, _ in loc_counter.most_common(5)]
+        for loc in top:
+            found_spaces = list(spaces.find({"location": loc, "is_available": True}))
+            for s in found_spaces:
+                s_id = str(s['_id'])
+                bookings_for_space = list(bookings.find({"parking_space_id": s_id}))
+                has_future_booking = any(
+                    (datetime.now() < b['start_date'] + timedelta(days=b['days'])) and b.get("is_active", True)
+                    for b in bookings_for_space
+                )
+                if not has_future_booking:
+                    s['_id'] = s_id
+                    result.append(s)
 
-def suggest_top_rates():
-    #fetch all spaces
-    spaces = ParkingSpace.query.filter_by(is_available=True).all()
-    rated_spaces = []
-
-    for space in spaces:
-        feedbacks = Feedback.query.filter_by(parking_space_id = space.id).all()
-        if feedbacks:
-            avg_rating = sum([f.rating for f in feedbacks]) / len(feedbacks)
-            rated_spaces.append((space, avg_rating))
-
-    # sort by rating descending
-    rated_spaces.sort(key = lambda x: x[1], reverse=True)
-
-    suggestions = []
-    for space, rating in rated_spaces[:10]:
-        suggestions.append({
-            'id': space.id,
-            'location': space.location,
-            'price_per_day': space.price_per_day,
-            'owner_id': space.owner_id,
-            'average_rating': round(rating, 2)
-        })
-    return jsonify({'top_rated_spaces': suggestions}), 200
+    return jsonify({'suggestions': result})
 
 @app.route('/debug_users')
 def debug_users():
-    users = user.query.all()
-    return jsonify([
-        {
-            'id': u.id,
-            'name': u.name,
-            'email': u.email,
-            'user_type': u.user_type
-        }
-        for u in users
-    ])
+    data = list(users.find())
+    for u in data:
+        u['_id'] = str(u['_id'])
+    return jsonify(data)
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        print("📂 Using DB at:", app.config['SQLALCHEMY_DATABASE_URI'])  # Optional debug
     app.run(debug=True)
-print("📂 Using database:", app.config['SQLALCHEMY_DATABASE_URI'])
+
 
